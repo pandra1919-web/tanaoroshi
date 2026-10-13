@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>棚卸スキャン</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #111a2b;
+    --panel-2: #172238;
+    --line: #24324b;
+    --text: #e6edf7;
+    --muted: #8a9ab3;
+    --accent: #10b981;
+    --accent-ink: #04241a;
+    --accent-soft: rgba(16, 185, 129, .14);
+    --warn: #f59e0b;
+    --warn-soft: rgba(245, 158, 11, .14);
+    --danger: #f43f5e;
+    --danger-soft: rgba(244, 63, 94, .14);
+    --radius: 14px;
+    --nav-h: 64px;
+    --font: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 15px; line-height: 1.5; }
+  body { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .hidden { display: none !important; }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+
+  /* Header */
+  .topbar { position: sticky; top: 0; z-index: 20; background: rgba(11,18,32,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); padding: calc(8px + env(safe-area-inset-top)) 12px 8px; }
+  .topbar-row { display: flex; align-items: center; gap: 8px; max-width: 640px; margin: 0 auto; }
+  .brand { font-weight: 800; font-size: 16px; letter-spacing: .02em; white-space: nowrap; }
+  .brand b { color: var(--accent); }
+  .chips { display: flex; gap: 6px; margin-left: auto; min-width: 0; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); font-size: 12px; font-weight: 700; max-width: 140px; }
+  .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--accent); }
+  .dot.wait { background: var(--warn); }
+
+  main { max-width: 640px; margin: 0 auto; padding: 12px; }
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+  .card h3 { font-size: 13px; margin: 14px 0 6px; color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex: 1; min-width: 0; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 10px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); font-weight: 700; font-size: 14px; }
+  .btn:active { transform: scale(.98); }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn-danger { background: var(--danger-soft); color: #fecdd3; border-color: rgba(244,63,94,.4); }
+  .btn-warn { background: var(--warn-soft); color: #fde68a; border-color: rgba(245,158,11,.4); }
+  .btn-block { width: 100%; }
+  .btn-big { min-height: 56px; font-size: 16px; }
+  .icon-btn { width: 44px; height: 44px; border-radius: 12px; background: rgba(11,18,32,.75); border: 1px solid rgba(255,255,255,.15); display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn.on { background: var(--warn); color: #1f1300; border-color: var(--warn); }
+  .icon-btn svg { width: 22px; height: 22px; }
+
+  /* Inputs */
+  .field { display: block; margin-bottom: 10px; }
+  .field > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+  .input, .select { width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); outline: none; font-size: 16px; }
+  .input:focus, .select:focus { border-color: var(--accent); }
+
+  /* Scanner */
+  .scanner-wrap { position: relative; border-radius: var(--radius); overflow: hidden; background: #000; border: 1px solid var(--line); aspect-ratio: 4 / 3; margin-bottom: 10px; }
+  #reader { width: 100%; height: 100%; }
+  #reader video { width: 100% !important; height: 100% !important; object-fit: cover; }
+  #reader img[alt="Info icon"], #reader__dashboard, #reader__header_message { display: none !important; }
+  .scan-standby { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; background: radial-gradient(circle at 50% 40%, #13213a, #070c16); }
+  .scan-standby p { margin: 0; color: var(--muted); font-size: 13px; }
+  .scan-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; z-index: 5; }
+  .scan-status { position: absolute; left: 8px; bottom: 8px; right: 8px; z-index: 5; padding: 6px 10px; border-radius: 10px; background: rgba(0,0,0,.6); font-size: 12px; font-weight: 700; text-align: center; }
+  .scan-target { position: absolute; left: 50%; top: 45%; width: 72%; height: 40%; transform: translate(-50%, -50%); border: 2px solid rgba(16,185,129,.85); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,.25); pointer-events: none; z-index: 4; }
+  .scan-target::after { content: ""; position: absolute; left: 6%; right: 6%; top: 50%; height: 2px; background: rgba(244,63,94,.85); animation: sweep 1.6s ease-in-out infinite; }
+  @keyframes sweep { 0%,100% { transform: translateY(-30px); } 50% { transform: translateY(30px); } }
+  .connect-banner { position: absolute; top: 8px; left: 8px; z-index: 6; padding: 6px 10px; border-radius: 10px; background: var(--warn); color: #1f1300; font-size: 12px; font-weight: 800; }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px; margin-bottom: 10px; }
+  .seg button { min-height: 40px; border-radius: 9px; font-size: 13px; font-weight: 700; color: var(--muted); }
+  .seg button.active { background: var(--accent); color: var(--accent-ink); }
+
+  /* Product card */
+  .product { border-color: var(--accent); background: linear-gradient(180deg, rgba(16,185,129,.10), var(--panel)); }
+  .product .name { font-size: 18px; font-weight: 800; line-height: 1.3; margin: 4px 0; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .tag { padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; background: var(--panel-2); border: 1px solid var(--line); }
+  .tag.size { color: #fcd34d; }
+  .tag.color { color: #5eead4; }
+  .tag.loc { color: #93c5fd; }
+  .tag.unreg { color: #fecdd3; border-color: rgba(244,63,94,.4); }
+  .qty-row { display: grid; grid-template-columns: 56px 1fr 56px; gap: 8px; margin: 12px 0 10px; }
+  .qty-row button { min-height: 56px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); font-size: 24px; font-weight: 800; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+  .qty-row input { text-align: center; font-size: 28px; font-weight: 800; font-family: var(--mono); }
+
+  .alert { padding: 10px 12px; border-radius: 12px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  .alert-danger { background: var(--danger-soft); border: 1px solid rgba(244,63,94,.4); color: #fecdd3; }
+  .alert-ok { background: var(--accent-soft); border: 1px solid rgba(16,185,129,.4); color: #a7f3d0; }
+  .alert-warn { background: var(--warn-soft); border: 1px solid rgba(245,158,11,.4); color: #fde68a; }
+
+  .search-wrap { position: relative; }
+  .candidates { margin-top: 6px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
+  .cand { display: block; width: 100%; text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .cand:last-child { border-bottom: 0; }
+  .cand:active { background: var(--accent-soft); }
+  .cand .n { font-weight: 700; }
+
+  .recent { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); border: 1px solid rgba(16,185,129,.35); font-size: 13px; margin-bottom: 10px; }
+  .recent b { font-family: var(--mono); font-size: 16px; color: #6ee7b7; }
+
+  .demo-codes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .demo-codes button { padding: 6px 10px; border-radius: 8px; border: 1px dashed var(--line); font-size: 12px; color: var(--muted); }
+
+  /* List */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 22px; font-family: var(--mono); }
+  .stat span { font-size: 11px; color: var(--muted); font-weight: 700; }
+  .stat.wait b { color: var(--warn); }
+  .list-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+  .list-tools .btn { min-height: 38px; padding: 6px 10px; font-size: 13px; }
+  .loc-head { display: flex; justify-content: space-between; padding: 8px 4px 4px; font-size: 12px; font-weight: 800; color: #93c5fd; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 6px; }
+  .item input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+  .item .info { flex: 1; min-width: 0; }
+  .item .n { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .meta { font-size: 11px; color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; flex: none; }
+  .stepper button { width: 34px; height: 38px; background: var(--panel-2); font-weight: 800; font-size: 18px; }
+  .stepper input { width: 48px; height: 38px; text-align: center; background: var(--bg); border: 0; outline: none; font-family: var(--mono); font-weight: 800; font-size: 16px; }
+  .empty { padding: 32px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+  .outbox { border-color: rgba(245,158,11,.5); }
+  .send-bar { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 8px); z-index: 10; margin-top: 12px; }
+
+  /* Settings */
+  .set-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .set-row:last-child { border-bottom: 0; }
+  .set-row .t { font-weight: 700; font-size: 14px; }
+  .set-row .d { font-size: 12px; color: var(--muted); }
+  .switch { position: relative; width: 52px; height: 30px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch i { position: absolute; inset: 0; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); transition: .2s; }
+  .switch i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--muted); transition: .2s; }
+  .switch input:checked + i { background: var(--accent); border-color: var(--accent); }
+  .switch input:checked + i::after { transform: translateX(22px); background: #fff; }
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+  .steps li { counter-increment: s; position: relative; padding: 0 0 12px 40px; font-size: 14px; }
+  .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .steps li b { display: block; }
+  details.qa { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  details.qa summary { font-weight: 700; font-size: 14px; cursor: pointer; }
+  details.qa p { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+  /* Bottom nav */
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: rgba(11,18,32,.97); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  .nav-inner { display: grid; grid-template-columns: repeat(3, 1fr); max-width: 640px; margin: 0 auto; height: var(--nav-h); }
+  .nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--muted); position: relative; }
+  .nav button svg { width: 24px; height: 24px; }
+  .nav button.active { color: var(--accent); }
+  .badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+
+  /* Modal */
+  .modal { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.7); display: flex; align-items: flex-end; justify-content: center; padding: 0; }
+  .modal-box { width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); }
+  @media (min-width: 600px) { .modal { align-items: center; } .modal-box { border-radius: 18px; } }
+  .modal-box h2 { margin: 0 0 6px; font-size: 18px; }
+  .modal-box p { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+  .map-grid { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .map-grid label { font-size: 13px; font-weight: 700; }
+  .preview { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 12px; }
+  .preview th, .preview td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  .preview th { background: var(--panel-2); }
+  .table-scroll { overflow-x: auto; }
+
+  .toast { position: fixed; left: 50%; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px); transform: translateX(-50%); z-index: 45; max-width: 92vw; padding: 10px 16px; border-radius: 12px; background: #e6edf7; color: #0b1220; font-weight: 700; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="brand">棚卸<b>スキャン</b></div>
+    <div class="chips">
+      <button class="chip" id="chip-worker" type="button"><span id="chip-worker-text">担当者未設定</span></button>
+      <button class="chip" id="chip-loc" type="button"><span id="chip-loc-text">棚番なし</span></button>
+      <button class="chip" id="chip-sync" type="button" aria-label="送信状況"><i class="dot" id="sync-dot"></i></button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ===== スキャン ===== -->
+  <section class="section active" id="sec-scan">
+    <div class="scanner-wrap">
+      <div id="reader"></div>
+      <div class="scan-target hidden" id="scan-target"></div>
+      <div class="connect-banner hidden" id="connect-banner">接続コードを読み取り中</div>
+      <div class="scan-tools">
+        <button class="icon-btn hidden" id="btn-torch" type="button" aria-label="ライト">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6l-1 6h3l-7 14 1-9H8z"/></svg>
+        </button>
+        <button class="icon-btn hidden" id="btn-flip" type="button" aria-label="カメラ切替">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-3l-2-3H9L7 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1z"/><path d="M9 13a3 3 0 0 1 5-2.2M15 13a3 3 0 0 1-5 2.2"/></svg>
+        </button>
+        <button class="icon-btn hidden" id="btn-cam-stop" type="button" aria-label="カメラ停止">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+      </div>
+      <div class="scan-standby" id="scan-standby">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>
+        <button class="btn btn-primary" id="btn-cam-start" type="button">カメラを起動してスキャン</button>
+        <p id="standby-msg">商品のバーコードを枠に合わせると自動で読み取ります</p>
+      </div>
+      <div class="scan-status hidden" id="scan-status">バーコードを枠内に合わせてください</div>
+    </div>
+
+    <div class="seg" role="tablist">
+      <button type="button" id="mode-qty" class="active">数量を入力する</button>
+      <button type="button" id="mode-one">1スキャン＝1点</button>
+    </div>
+
+    <div class="alert alert-danger hidden" id="scan-error">
+      <div id="scan-error-text"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-danger grow" id="btn-count-unreg" type="button">未登録品として数える</button>
+        <button class="btn" id="btn-close-error" type="button">閉じる</button>
+      </div>
+    </div>
+
+    <div class="card product hidden" id="product-card">
+      <div class="row">
+        <div class="grow small mono muted" id="prod-code"></div>
+        <button class="btn" id="btn-cancel-product" type="button" style="min-height:34px;padding:4px 10px;font-size:12px">取消</button>
+      </div>
+      <div class="name" id="prod-name"></div>
+      <div class="tags" id="prod-tags"></div>
+      <div class="qty-row">
+        <button type="button" id="btn-qty-minus" aria-label="1減らす">−</button>
+        <input class="input" id="input-qty" type="number" inputmode="numeric" min="1" value="1" aria-label="数量">
+        <button type="button" id="btn-qty-plus" aria-label="1増やす">＋</button>
+      </div>
+      <button class="btn btn-primary btn-block btn-big" id="btn-confirm" type="button">確定してリストへ追加</button>
+    </div>
+
+    <div class="recent hidden" id="recent">
+      <span id="recent-text" class="grow"></span>
+      <b id="recent-qty"></b>
+    </div>
+
+    <div class="card">
+      <label class="field" style="margin:0">
+        <span>バーコードが読めないとき：商品コード・品名・カラー・サイズ・JANで検索</span>
+        <div class="row">
+          <input class="input grow" id="input-search" type="search" placeholder="例：シャツ M" autocomplete="off" enterkeyhint="search">
+        </div>
+      </label>
+      <div class="candidates hidden" id="candidates"></div>
+    </div>
+
+    <div class="card" id="demo-card">
+      <h2 style="font-size:13px" class="muted">お試し用（カメラなしで動作確認できます）</h2>
+      <div class="demo-codes">
+        <button type="button" data-demo="4901234567890">シャツ 白 M</button>
+        <button type="button" data-demo="4901234567893">シャンブレー M</button>
+        <button type="button" data-demo="4901234567894">チノ M</button>
+        <button type="button" data-demo="4999999999999">未登録の例</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== リスト ===== -->
+  <section class="section" id="sec-list">
+    <div class="stats">
+      <div class="stat"><b id="st-rows">0</b><span>行</span></div>
+      <div class="stat"><b id="st-qty">0</b><span>合計点数</span></div>
+      <div class="stat wait"><b id="st-wait">0</b><span>送信待ち</span></div>
+    </div>
+
+    <div class="alert alert-ok hidden" id="send-ok"></div>
+
+    <div class="card outbox hidden" id="outbox-card">
+      <h2>送信待ちのデータ</h2>
+      <p class="small muted" style="margin:0 0 10px">電波が戻ると自動で再送します。送信済みの分が重複して記録されることはありません。</p>
+      <div id="outbox-list"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-warn grow" id="btn-retry" type="button">今すぐ再送</button>
+        <button class="btn" id="btn-unqueue" type="button">リストに戻す</button>
+      </div>
+    </div>
+
+    <div class="list-tools">
+      <label class="row small" style="gap:6px;font-weight:700"><input type="checkbox" id="check-all" style="width:20px;height:20px;accent-color:#10b981">すべて選択</label>
+      <span class="grow"></span>
+      <button class="btn btn-danger" id="btn-bulk-del" type="button">選択を削除 (<span id="sel-count">0</span>)</button>
+      <button class="btn" id="btn-csv" type="button">CSV保存</button>
+    </div>
+
+    <div id="list"></div>
+
+    <div class="send-bar">
+      <button class="btn btn-primary btn-block btn-big" id="btn-send" type="button">スプレッドシートへ送信</button>
+    </div>
+    <div style="text-align:center;margin-top:10px">
+      <button class="btn btn-danger" id="btn-clear-all" type="button" style="min-height:36px;font-size:12px">リストを全部消す</button>
+    </div>
+  </section>
+
+  <!-- ===== 設定 ===== -->
+  <section class="section" id="sec-settings">
+    <div class="card">
+      <h2>はじめての方へ（3ステップ）</h2>
+      <ol class="steps">
+        <li><b>スプレッドシートとつなぐ</b>パソコンでテンプレートの「棚卸アプリ」メニューから接続コード（QR）を表示し、下の「接続コードを読み取る」でスキャンします。</li>
+        <li><b>商品マスタを入れる</b>スプレッドシートの「商品マスタ」に貼り付けて「シートから読み込む」、またはExcel・CSVを取り込みます。</li>
+        <li><b>数えて送る</b>棚番を決めてスキャン。終わったら「リスト」から送信します。</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>スプレッドシート接続</h2>
+      <div class="alert hidden" id="conn-state"></div>
+      <button class="btn btn-primary btn-block" id="btn-scan-connect" type="button">接続コードを読み取る（QR）</button>
+      <details style="margin-top:10px">
+        <summary class="small muted" style="cursor:pointer">手入力で設定する</summary>
+        <label class="field" style="margin-top:10px"><span>接続コード、またはウェブアプリのURL</span><input class="input" id="in-url" type="url" placeholder="TNS1|https://script.google.com/... または URL" autocomplete="off"></label>
+        <label class="field"><span>接続キー（URLだけ入れた場合）</span><input class="input mono" id="in-key" type="text" autocomplete="off"></label>
+        <button class="btn btn-block" id="btn-save-conn" type="button">保存</button>
+      </details>
+      <button class="btn btn-block" id="btn-test-conn" type="button" style="margin-top:8px">接続テスト</button>
+    </div>
+
+    <div class="card">
+      <h2>商品マスタ <span class="muted small">登録数 <b id="master-count">0</b> 件</span></h2>
+      <button class="btn btn-primary btn-block" id="btn-load-master" type="button">シートから読み込む</button>
+      <div class="row" style="margin-top:8px">
+        <label class="btn grow" for="file-master">Excel・CSVを取り込む</label>
+        <button class="btn" id="btn-template" type="button">雛形</button>
+      </div>
+      <input type="file" id="file-master" accept=".xlsx,.xls,.csv" class="hidden">
+      <p class="small muted" style="margin:8px 0 0">取り込むときに、どの列がJANか・品名かを選べます。スマレジ等のCSV（Shift_JIS）もそのまま読めます。</p>
+    </div>
+
+    <div class="card">
+      <h2>スキャン動作</h2>
+      <div class="set-row">
+        <div><div class="t">同じ商品は1行にまとめる</div><div class="d">同じ棚番・同じ商品を続けて数えると数量を足し算</div></div>
+        <label class="switch"><input type="checkbox" id="set-merge"><i></i></label>
+      </div>
+      <div class="set-row">
+        <div class="grow"><div class="t">同じバーコードの読み取り間隔</div><div class="d">短すぎると1回で2重に数えることがあります</div></div>
+        <select class="select" id="set-interval" style="width:auto">
+          <option value="800">0.8秒</option>
+          <option value="1500">1.5秒</option>
+          <option value="2500">2.5秒</option>
+        </select>
+      </div>
+      <div class="set-row">
+        <div><div class="t">読み取り音</div></div>
+        <label class="switch"><input type="checkbox" id="set-sound"><i></i></label>
+      </div>
+      <div class="set-row">
+        <div><div class="t">振動</div><div class="d">Androidのみ</div></div>
+        <label class="switch"><input type="checkbox" id="set-vibe"><i></i></label>
+      </div>
+      <div class="set-row">
+        <div><div class="t">お試し用ボタンを表示</div></div>
+        <label class="switch"><input type="checkbox" id="set-demo"><i></i></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>困ったとき</h2>
+      <details class="qa"><summary>カメラが映らない</summary><p>iPhone：「設定」→「Safari」→「カメラ」を「許可」にして、このページを開き直してください。ホーム画面から開いている場合も同じです。<br>Android：Chromeのアドレスバー左の鍵マーク →「権限」→「カメラ」を許可。</p></details>
+      <details class="qa"><summary>送信に失敗する</summary><p>「接続テスト」を押してください。キーが違う・URLが古い場合は、パソコンでもう一度接続コードを表示して読み取り直します。電波がない場所では「送信待ち」に入り、電波が戻ると自動で送られます。</p></details>
+      <details class="qa"><summary>「登録されていません」と出る</summary><p>商品マスタにないバーコードです。「未登録品として数える」でJANだけ記録できます。あとでマスタに追加して「シートから読み込む」を押してください。</p></details>
+      <details class="qa"><summary>JANの先頭の0が消える</summary><p>テンプレートのスプレッドシートを使ってください。このアプリは先頭0が消えたJANでも照合できます。</p></details>
+      <details class="qa"><summary>ライトのボタンがない</summary><p>端末とブラウザがライト操作に対応している場合だけ表示されます（多くのAndroidは対応、iPhoneは非対応）。</p></details>
+    </div>
+
+    <div class="card">
+      <h2>データ</h2>
+      <button class="btn btn-danger btn-block" id="btn-reset" type="button">この端末のデータをすべて消す</button>
+      <p class="small muted" style="margin:8px 0 0">スプレッドシートに送信済みのデータは消えません。<br>バージョン <span id="ver"></span></p>
+    </div>
+  </section>
+</main>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <button type="button" class="active" data-tab="scan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>
+      スキャン
+    </button>
+    <button type="button" data-tab="list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      リスト
+      <span class="badge hidden" id="nav-badge">0</span>
+    </button>
+    <button type="button" data-tab="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      設定・ガイド
+    </button>
+  </div>
+</nav>
+
+<!-- 作業開始モーダル -->
+<div class="modal hidden" id="modal-start">
+  <div class="modal-box">
+    <h2>棚卸を始める</h2>
+    <p>担当者名はスプレッドシートの記録に残ります。棚番は空欄でも使えます。</p>
+    <label class="field"><span>担当者名</span><input class="input" id="in-worker" type="text" placeholder="例：山田" autocomplete="name"></label>
+    <label class="field"><span>棚番・エリア（任意）</span><input class="input" id="in-loc" type="text" placeholder="例：A-01 / 店頭 / バックヤード" autocomplete="off" list="loc-history"></label>
+    <datalist id="loc-history"></datalist>
+    <button class="btn btn-primary btn-block btn-big" id="btn-start" type="button">この内容で開始</button>
+  </div>
+</div>
+
+<!-- 列の割り当てモーダル -->
+<div class="modal hidden" id="modal-map">
+  <div class="modal-box">
+    <h2>列の割り当て</h2>
+    <p id="map-file"></p>
+    <label class="row small" style="margin-bottom:10px;font-weight:700;gap:8px"><input type="checkbox" id="map-header" checked style="width:20px;height:20px;accent-color:#10b981">1行目は見出し（取り込まない）</label>
+    <div class="map-grid" id="map-grid"></div>
+    <div class="table-scroll"><table class="preview" id="map-preview"></table></div>
+    <label class="row small" style="margin-bottom:12px;font-weight:700;gap:8px"><input type="checkbox" id="map-push" style="width:20px;height:20px;accent-color:#10b981">取り込み後、スプレッドシートの商品マスタも上書きする</label>
+    <div class="row">
+      <button class="btn grow" id="btn-map-cancel" type="button">やめる</button>
+      <button class="btn btn-primary grow" id="btn-map-ok" type="button">取り込む</button>
+    </div>
+  </div>
+</div>
+
+<!-- カメラ許可ヘルプ -->
+<div class="modal hidden" id="modal-camhelp">
+  <div class="modal-box">
+    <h2>カメラを使えるようにする</h2>
+    <p id="camhelp-reason">カメラの使用が許可されていません。</p>
+    <div class="card" style="background:var(--bg)">
+      <b>iPhone（Safari）</b>
+      <ol class="small" style="margin:6px 0 0;padding-left:18px">
+        <li>「設定」アプリ →「Safari」→「カメラ」→「許可」</li>
+        <li>このページに戻り、下の「もう一度試す」</li>
+      </ol>
+    </div>
+    <div class="card" style="background:var(--bg)">
+      <b>Android（Chrome）</b>
+      <ol class="small" style="margin:6px 0 0;padding-left:18px">
+        <li>アドレスバー左の鍵マーク（またはスライダー）をタップ</li>
+        <li>「権限」→「カメラ」→「許可」</li>
+        <li>下の「もう一度試す」</li>
+      </ol>
+    </div>
+    <p>直らない場合も、検索欄から手入力で棚卸を続けられます。</p>
+    <div class="row">
+      <button class="btn grow" id="btn-camhelp-close" type="button">閉じる</button>
+      <button class="btn btn-primary grow" id="btn-camhelp-retry" type="button">もう一度試す</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const VERSION = '1.0.0';
+  const KEY = 'tns_v1_';
+  const DEMO_MASTER = [
+    { code: 'SH-001-WHT-M', name1: 'オックスフォードBDシャツ', name2: 'ホワイト', size: 'M', jan: '4901234567890' },
+    { code: 'SH-001-WHT-L', name1: 'オックスフォードBDシャツ', name2: 'ホワイト', size: 'L', jan: '4901234567891' },
+    { code: 'SH-002-BLU-S', name1: 'シャンブレーシャツ', name2: 'サックスブルー', size: 'S', jan: '4901234567892' },
+    { code: 'SH-002-BLU-M', name1: 'シャンブレーシャツ', name2: 'サックスブルー', size: 'M', jan: '4901234567893' },
+    { code: 'PT-102-KHK-M', name1: 'ストレッチテーパードチノ', name2: 'カーキ', size: 'M', jan: '4901234567894' },
+    { code: 'TS-001-OWH-M', name1: 'クルーネックTシャツ', name2: 'オフホワイト', size: 'M', jan: '4901234567898' }
+  ];
+  const FIELDS = [
+    { key: 'code', label: '商品コード', re: /商品コード|品番|^コード$|sku|item.?code|product.?code|code/i },
+    { key: 'name1', label: '商品名', re: /^商品名$|商品名1|品名|名称|^name$|product.?name|item.?name|商品名/i },
+    { key: 'name2', label: 'カラー等', re: /商品名2|カラー|色|color|colour|規格|バリエーション/i },
+    { key: 'size', label: 'サイズ', re: /サイズ|size/i },
+    { key: 'jan', label: 'JAN', re: /jan|ean|バーコード|barcode|gtin/i }
+  ];
+
+  // ---------- state ----------
+  const S = {
+    master: [], list: [], outbox: [],
+    worker: '', loc: '', locHistory: [],
+    url: '', key: '',
+    settings: { merge: true, interval: 1500, sound: true, vibe: true, demo: true, mode: 'qty' }
+  };
+  let janIndex = new Map();
+  let codeIndex = new Map();
+
+  function load(name, fallback) {
+    try { const v = localStorage.getItem(KEY + name); return v === null ? fallback : JSON.parse(v); }
+    catch (e) { return fallback; }
+  }
+  function save(name) {
+    try { localStorage.setItem(KEY + name, JSON.stringify(S[name])); }
+    catch (e) { toast('端末の保存領域がいっぱいです。CSV保存してからリストを整理してください'); }
+  }
+  function loadAll() {
+    S.master = load('master', null) || DEMO_MASTER.slice();
+    S.list = load('list', []);
+    S.outbox = load('outbox', []);
+    S.worker = load('worker', '');
+    S.loc = load('loc', '');
+    S.locHistory = load('locHistory', []);
+    S.url = load('url', '');
+    S.key = load('key', '');
+    S.settings = Object.assign(S.settings, load('settings', {}));
+    buildIndex();
+  }
+
+  // ---------- helpers ----------
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+  const normJan = s => String(s == null ? '' : s).replace(/\s/g, '').replace(/^0+/, '');
+  const normCode = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  function nowText(d = new Date()) {
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  function cellText(v) {
+    if (v == null) return '';
+    if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(v);
+    return String(v).trim();
+  }
+
+  let toastTimer = null;
+  function toast(msg, ms = 2600) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.add('hidden'), ms);
+  }
+
+  let audioCtx = null;
+  function beep(freq = 880, dur = 0.08) {
+    if (!S.settings.sound) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.22, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + dur);
+    } catch (e) {}
+  }
+  function vibe(ms = 40) { if (S.settings.vibe && navigator.vibrate) try { navigator.vibrate(ms); } catch (e) {} }
+
+  function buildIndex() {
+    janIndex = new Map(); codeIndex = new Map();
+    for (const m of S.master) {
+      const j = normJan(m.jan); if (j && !janIndex.has(j)) janIndex.set(j, m);
+      const c = normCode(m.code); if (c && !codeIndex.has(c)) codeIndex.set(c, m);
+    }
+  }
+  function findProduct(code) {
+    const raw = String(code).trim();
+    if (!raw) return null;
+    return janIndex.get(normJan(raw)) || codeIndex.get(normCode(raw)) || null;
+  }
+
+  // ---------- tabs ----------
+  function switchTab(tab) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    $('sec-' + tab).classList.add('active');
+    document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    if (tab !== 'scan' && camRunning && !connectMode) stopCamera();
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- camera ----------
+  let qr = null, camRunning = false, scanPaused = false, facing = 'environment', torchOn = false;
+  let lastCode = '', lastAt = 0, connectMode = false;
+
+  async function startCamera() {
+    const reader = $('reader');
+    if (!window.Html5Qrcode) { showCamHelp('読み取り部品を読み込めませんでした。電波の良い場所でページを開き直してください。'); return; }
+    if (qr && camRunning) return;
+    qr = qr || new Html5Qrcode('reader', { verbose: false });
+    const formats = window.Html5QrcodeSupportedFormats;
+    const config = {
+      fps: 12,
+      aspectRatio: 1.3333,
+      disableFlip: true,
+      formatsToSupport: [formats.EAN_13, formats.EAN_8, formats.UPC_A, formats.UPC_E, formats.CODE_128, formats.CODE_39, formats.ITF, formats.QR_CODE],
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+    };
+    $('standby-msg').textContent = 'カメラを起動しています…';
+    try {
+      await qr.start({ facingMode: facing }, config, onDecoded, () => {});
+    } catch (err) {
+      const msg = String(err && (err.name || err.message || err));
+      $('standby-msg').textContent = '商品のバーコードを枠に合わせると自動で読み取ります';
+      if (/NotAllowed|Permission|denied/i.test(msg)) {
+        showCamHelp('カメラの使用が許可されていません。下の手順で許可してください。');
+      } else if (/NotFound|Overconstrained|no camera/i.test(msg)) {
+        if (facing === 'environment') { facing = 'user'; return startCamera(); }
+        showCamHelp('この端末でカメラが見つかりませんでした。');
+      } else if (/NotReadable|in use|Could not start/i.test(msg)) {
+        showCamHelp('カメラを他のアプリが使っています。カメラを使う他のアプリやタブを閉じてから、もう一度試してください。');
+      } else if (!window.isSecureContext) {
+        showCamHelp('このページは https で開く必要があります。');
+      } else {
+        showCamHelp('カメラを起動できませんでした（' + msg.slice(0, 60) + '）。');
+      }
+      return;
+    }
+    camRunning = true; scanPaused = false; torchOn = false;
+    $('scan-standby').classList.add('hidden');
+    $('scan-target').classList.remove('hidden');
+    $('scan-status').classList.remove('hidden');
+    $('btn-cam-stop').classList.remove('hidden');
+    $('btn-flip').classList.remove('hidden');
+    setStatus(connectMode ? 'パソコンに表示した接続コード（QR）を映してください' : 'バーコードを枠内に合わせてください');
+    detectTorch();
+  }
+
+  async function stopCamera() {
+    if (qr && camRunning) { try { await qr.stop(); } catch (e) {} }
+    camRunning = false; scanPaused = false; torchOn = false;
+    $('scan-standby').classList.remove('hidden');
+    $('scan-target').classList.add('hidden');
+    $('scan-status').classList.add('hidden');
+    $('btn-cam-stop').classList.add('hidden');
+    $('btn-flip').classList.add('hidden');
+    $('btn-torch').classList.add('hidden');
+    $('btn-torch').classList.remove('on');
+    $('standby-msg').textContent = '商品のバーコードを枠に合わせると自動で読み取ります';
+  }
+
+  function detectTorch() {
+    const btn = $('btn-torch');
+    btn.classList.add('hidden');
+    try {
+      const caps = qr.getRunningTrackCameraCapabilities();
+      if (caps && caps.torchFeature().isSupported()) btn.classList.remove('hidden');
+    } catch (e) {}
+  }
+  async function toggleTorch() {
+    try {
+      torchOn = !torchOn;
+      await qr.getRunningTrackCameraCapabilities().torchFeature().apply(torchOn);
+      $('btn-torch').classList.toggle('on', torchOn);
+    } catch (e) { torchOn = false; toast('この端末ではライトを操作できません'); }
+  }
+
+  function pauseScan() {
+    scanPaused = true;
+    try { if (qr && camRunning) qr.pause(true); } catch (e) {}
+    // ライブラリが出す英語の「Scanner paused」表示を隠す
+    document.querySelectorAll('#reader div').forEach(d => { if (d.childElementCount === 0 && /Scanner paused/i.test(d.textContent)) d.style.display = 'none'; });
+  }
+  function resumeScan() { scanPaused = false; try { if (qr && camRunning) qr.resume(); } catch (e) {} }
+  function setStatus(t) { $('scan-status').textContent = t; }
+
+  function onDecoded(text) {
+    if (scanPaused) return;
+    const code = String(text || '').trim();
+    if (!code) return;
+    const now = Date.now();
+    if (code === lastCode && now - lastAt < S.settings.interval) return;
+    if (now - lastAt < 300) return;
+    lastCode = code; lastAt = now;
+
+    if (connectMode) { handleConnectCode(code); return; }
+    if (/^TNS1\|/.test(code)) { handleConnectCode(code); return; }
+    handleCode(code);
+  }
+
+  // ---------- scanning flow ----------
+  let current = null;       // product awaiting qty
+  let pendingUnreg = '';    // unregistered code awaiting decision
+
+  function handleCode(code) {
+    hideError();
+    const p = findProduct(code);
+    if (!p) {
+      beep(300, 0.25); vibe(150);
+      pendingUnreg = code;
+      $('scan-error-text').innerHTML = '「<span class="mono">' + esc(code) + '</span>」は商品マスタにありません。';
+      $('scan-error').classList.remove('hidden');
+      setStatus('未登録のバーコードです');
+      if (S.settings.mode === 'qty') pauseScan();
+      return;
+    }
+    beep(880, 0.07); vibe(30);
+    if (S.settings.mode === 'one') {
+      addRecord(p, 1, false);
+      return;
+    }
+    showProduct(p, false);
+  }
+
+  function showProduct(p, unregistered) {
+    pauseScan();
+    current = { p, unregistered };
+    $('prod-code').textContent = (p.code ? 'CODE ' + p.code + '　' : '') + 'JAN ' + (p.jan || '—');
+    $('prod-name').textContent = p.name1 || '（未登録品）';
+    $('prod-tags').innerHTML =
+      (p.name2 ? '<span class="tag color">' + esc(p.name2) + '</span>' : '') +
+      (p.size ? '<span class="tag size">' + esc(p.size) + '</span>' : '') +
+      (S.loc ? '<span class="tag loc">棚番 ' + esc(S.loc) + '</span>' : '') +
+      (unregistered ? '<span class="tag unreg">未登録品</span>' : '');
+    $('product-card').classList.remove('hidden');
+    setStatus('数量を入れて確定してください');
+    const q = $('input-qty');
+    q.value = '1';
+    setTimeout(() => { q.focus(); q.select(); }, 60);
+  }
+
+  function closeProduct() {
+    current = null;
+    $('product-card').classList.add('hidden');
+    $('input-qty').blur();
+    resumeScan();
+    setStatus('次のバーコードを枠内に合わせてください');
+  }
+
+  function confirmQty() {
+    if (!current) return;
+    const qty = Math.max(1, Math.min(99999, parseInt($('input-qty').value, 10) || 1));
+    addRecord(current.p, qty, current.unregistered);
+    closeProduct();
+  }
+
+  function addRecord(p, qty, unregistered) {
+    const base = {
+      code: p.code || '', name1: p.name1 || '', name2: p.name2 || '', size: p.size || '', jan: p.jan || '',
+      loc: S.loc, worker: S.worker, unreg: !!unregistered
+    };
+    let rec = null;
+    if (S.settings.merge) {
+      const i = S.list.findIndex(r => r.jan === base.jan && r.code === base.code && r.loc === base.loc && r.worker === base.worker);
+      if (i >= 0) {
+        rec = S.list[i];
+        rec.qty += qty;
+        rec.ts = nowText();
+        S.list.splice(i, 1);
+        S.list.unshift(rec);
+      }
+    }
+    if (!rec) {
+      rec = Object.assign({ id: uid('r'), qty, ts: nowText() }, base);
+      S.list.unshift(rec);
+    }
+    save('list');
+    beep(1175, 0.06);
+    $('recent-text').textContent = (rec.name1 || '未登録品 ' + rec.jan) + (rec.size ? ' [' + rec.size + ']' : '') + (rec.loc ? '　' + rec.loc : '');
+    $('recent-qty').textContent = (S.settings.merge ? '計 ' : '×') + rec.qty;
+    $('recent').classList.remove('hidden');
+    renderCounts();
+    if (S.settings.mode === 'one') setStatus('＋' + qty + '　' + (rec.name1 || rec.jan) + '（計' + rec.qty + '）');
+  }
+
+  function hideError() { $('scan-error').classList.add('hidden'); pendingUnreg = ''; }
+
+  // ---------- manual search ----------
+  function searchMaster(q) {
+    const box = $('candidates');
+    const t = q.trim().toLowerCase();
+    if (!t) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    const kws = t.split(/\s+/).filter(Boolean);
+    const hits = [];
+    for (const m of S.master) {
+      const hay = (m.code + ' ' + m.name1 + ' ' + m.name2 + ' ' + m.size + ' ' + m.jan).toLowerCase();
+      if (kws.every(k => hay.includes(k))) { hits.push(m); if (hits.length >= 10) break; }
+    }
+    box.innerHTML = hits.length
+      ? hits.map((m, i) => '<button type="button" class="cand" data-i="' + S.master.indexOf(m) + '"><div class="n">' + esc(m.name1) +
+          '</div><div class="tags">' + (m.name2 ? '<span class="tag color">' + esc(m.name2) + '</span>' : '') +
+          (m.size ? '<span class="tag size">' + esc(m.size) + '</span>' : '') +
+          '<span class="tag mono">' + esc(m.code) + '</span></div></button>').join('')
+      : '<div class="empty" style="padding:14px">一致する商品がありません</div>';
+    box.classList.remove('hidden');
+  }
+
+  // ---------- list ----------
+  function renderCounts() {
+    const rows = S.list.length;
+    const qty = S.list.reduce((a, r) => a + (Number(r.qty) || 0), 0);
+    const waiting = S.outbox.reduce((a, b) => a + b.items.length, 0);
+    $('st-rows').textContent = rows;
+    $('st-qty').textContent = qty;
+    $('st-wait').textContent = waiting;
+    const badge = $('nav-badge');
+    badge.textContent = rows;
+    badge.classList.toggle('hidden', rows === 0);
+    $('chip-worker-text').textContent = S.worker || '担当者未設定';
+    $('chip-loc-text').textContent = S.loc ? '棚番 ' + S.loc : '棚番なし';
+    const dot = $('sync-dot');
+    dot.className = 'dot' + (!S.url ? '' : waiting ? ' wait' : ' ok');
+    $('master-count').textContent = S.master.length;
+  }
+
+  function renderList() {
+    renderCounts();
+    const box = $('list');
+    if (!S.list.length) {
+      box.innerHTML = '<div class="empty">まだ数えた商品がありません。<br>「スキャン」からバーコードを読み取ってください。</div>';
+    } else {
+      const groups = new Map();
+      for (const r of S.list) {
+        const k = r.loc || '';
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(r);
+      }
+      let html = '';
+      for (const [loc, rows] of groups) {
+        const sum = rows.reduce((a, r) => a + r.qty, 0);
+        html += '<div class="loc-head"><span>' + (loc ? '棚番 ' + esc(loc) : '棚番なし') + '</span><span>' + rows.length + '行 / ' + sum + '点</span></div>';
+        html += rows.map(r =>
+          '<div class="item" data-id="' + esc(r.id) + '">' +
+            '<input type="checkbox" class="sel" aria-label="選択">' +
+            '<div class="info"><div class="n">' + esc(r.name1 || '未登録品') + '</div>' +
+            '<div class="tags">' + (r.name2 ? '<span class="tag color">' + esc(r.name2) + '</span>' : '') +
+              (r.size ? '<span class="tag size">' + esc(r.size) + '</span>' : '') +
+              (r.unreg ? '<span class="tag unreg">未登録</span>' : '') + '</div>' +
+            '<div class="meta">' + esc(r.code ? r.code + ' | ' : '') + 'JAN ' + esc(r.jan) + ' | ' + esc(r.worker) + '</div></div>' +
+            '<div class="stepper"><button type="button" data-act="minus">−</button>' +
+            '<input type="number" inputmode="numeric" min="1" value="' + r.qty + '" data-act="set">' +
+            '<button type="button" data-act="plus">＋</button></div>' +
+          '</div>').join('');
+      }
+      box.innerHTML = html;
+    }
+    $('check-all').checked = false;
+    updateSel();
+    renderOutbox();
+  }
+
+  function updateSel() { $('sel-count').textContent = document.querySelectorAll('#list .sel:checked').length; }
+
+  function renderOutbox() {
+    const card = $('outbox-card');
+    if (!S.outbox.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    $('outbox-list').innerHTML = S.outbox.map(b =>
+      '<div class="small" style="padding:4px 0">' + esc(b.createdText) + '　' + b.items.length + '行 / ' +
+      b.items.reduce((a, r) => a + r.qty, 0) + '点' + (b.lastError ? '<br><span style="color:#fca5a5">' + esc(b.lastError) + '</span>' : '') + '</div>').join('');
+  }
+
+  function exportCsv(rows, filename) {
+    const head = ['登録日時', '担当者', '棚番', '商品コード', '商品名1', '商品名2', 'サイズ', 'JANコード', '数量', '未登録'];
+    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const lines = [head.map(q).join(',')].concat(rows.map(r =>
+      [r.ts, r.worker, r.loc, r.code, r.name1, r.name2, r.size, '="' + r.jan + '"', r.qty, r.unreg ? '未登録' : ''].map((v, i) => i === 7 ? v : q(v)).join(',')));
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  // ---------- server ----------
+  async function api(action, payload = {}, timeoutMs = 30000) {
+    if (!S.url) throw new Error('スプレッドシートが未接続です（設定・ガイド →「接続コードを読み取る」）');
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(S.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({ action, key: S.key, client: VERSION }, payload)),
+        signal: ctrl.signal,
+        redirect: 'follow'
+      });
+    } catch (e) {
+      throw new Error(e.name === 'AbortError' ? '時間内に応答がありませんでした（電波を確認）' : '通信できませんでした（電波・URLを確認）');
+    } finally { clearTimeout(timer); }
+    let data;
+    try { data = await res.json(); }
+    catch (e) { throw new Error('応答を読めませんでした。ウェブアプリの「アクセスできるユーザー」が「全員」か確認してください'); }
+    if (!data.ok) throw new Error(data.error || '処理に失敗しました');
+    return data;
+  }
+
+  function queueSend() {
+    if (!S.list.length) { toast('送信するデータがありません'); return; }
+    if (!S.url) { toast('先にスプレッドシートと接続してください'); switchTab('settings'); return; }
+    const batch = { id: uid('b'), createdText: nowText(), items: S.list.slice().reverse(), tries: 0, lastError: '' };
+    S.outbox.push(batch);
+    S.list = [];
+    save('outbox'); save('list');
+    renderList();
+    flushOutbox(true);
+  }
+
+  let flushing = false;
+  async function flushOutbox(manual) {
+    if (flushing || !S.outbox.length || !S.url) return;
+    if (!navigator.onLine && !manual) return;
+    flushing = true;
+    const btn = $('btn-send');
+    btn.disabled = true; btn.textContent = '送信中…';
+    let sentRows = 0, failed = false;
+    try {
+      while (S.outbox.length) {
+        const b = S.outbox[0];
+        try {
+          const r = await api('appendInventory', { batchId: b.id, items: b.items.map(toSheetRow) }, 60000);
+          sentRows += b.items.length;
+          S.outbox.shift();
+          save('outbox');
+          if (r.duplicate) console.info('batch already stored', b.id);
+        } catch (e) {
+          b.tries++; b.lastError = e.message; save('outbox');
+          failed = true;
+          if (manual) toast('未送信：' + e.message, 4500);
+          break;
+        }
+      }
+    } finally {
+      flushing = false;
+      btn.disabled = false; btn.textContent = 'スプレッドシートへ送信';
+      renderList();
+    }
+    if (sentRows) {
+      const ok = $('send-ok');
+      ok.textContent = '送信完了：' + sentRows + '行をスプレッドシートに記録しました';
+      ok.classList.remove('hidden');
+      setTimeout(() => ok.classList.add('hidden'), 6000);
+      beep(1318, 0.1);
+    }
+    return !failed;
+  }
+
+  function toSheetRow(r) {
+    return { ts: r.ts, worker: r.worker, loc: r.loc, code: r.code, name1: r.name1, name2: r.name2, size: r.size, jan: r.jan, qty: r.qty, unreg: !!r.unreg };
+  }
+
+  // ---------- connection ----------
+  function parseConn(text) {
+    const t = String(text || '').trim();
+    if (/^TNS1\|/.test(t)) {
+      const parts = t.split('|');
+      if (parts.length >= 3 && /^https:\/\/script\.google(usercontent)?\.com\//.test(parts[1])) return { url: parts[1], key: parts[2] };
+      return null;
+    }
+    if (/^https:\/\/script\.google\.com\/.+\/exec/.test(t)) return { url: t, key: null };
+    return null;
+  }
+
+  async function handleConnectCode(code) {
+    const c = parseConn(code);
+    if (!c) { beep(300, 0.2); setStatus('接続コードではありません。パソコンに表示したQRを映してください'); return; }
+    beep(988, 0.08); vibe(40);
+    S.url = c.url; S.key = c.key || S.key;
+    save('url'); save('key');
+    connectMode = false;
+    $('connect-banner').classList.add('hidden');
+    await stopCamera();
+    switchTab('settings');
+    renderConn();
+    testConnection();
+  }
+
+  function renderConn(state, text) {
+    const box = $('conn-state');
+    if (!S.url) { box.className = 'alert alert-warn'; box.textContent = 'まだ接続していません。お試しデータで動作確認はできます。'; return; }
+    if (state === 'ok') { box.className = 'alert alert-ok'; box.textContent = text; return; }
+    if (state === 'ng') { box.className = 'alert alert-danger'; box.textContent = text; return; }
+    box.className = 'alert alert-ok'; box.textContent = '接続先を設定済みです。「接続テスト」で確認できます。';
+  }
+
+  async function testConnection() {
+    renderConn('ok', '接続を確認しています…');
+    try {
+      const r = await api('ping', {}, 20000);
+      renderConn('ok', '接続OK：「' + r.sheetName + '」（商品マスタ ' + r.masterCount + '件）');
+      if (r.masterCount > 0 && (S.master === DEMO_MASTER || isDemoMaster())) {
+        if (confirm('スプレッドシートの商品マスタ（' + r.masterCount + '件）を読み込みますか？')) loadMasterFromSheet();
+      }
+      flushOutbox(false);
+    } catch (e) {
+      renderConn('ng', '接続できません：' + e.message);
+    }
+  }
+  function isDemoMaster() { return S.master.length === DEMO_MASTER.length && S.master[0] && S.master[0].jan === DEMO_MASTER[0].jan; }
+
+  async function loadMasterFromSheet() {
+    const btn = $('btn-load-master');
+    btn.disabled = true; btn.textContent = '読み込み中…';
+    try {
+      const r = await api('getMaster', {}, 60000);
+      if (!r.master.length) { toast('スプレッドシートの商品マスタが空です'); return; }
+      S.master = r.master; save('master'); buildIndex(); renderCounts();
+      const d = dupCheck(S.master);
+      toast('商品マスタを ' + r.master.length + '件 読み込みました' + (d ? '（' + d + '）' : ''), 4500);
+    } catch (e) {
+      toast('読み込めませんでした：' + e.message, 4500);
+    } finally {
+      btn.disabled = false; btn.textContent = 'シートから読み込む';
+    }
+  }
+
+  function dupCheck(list) {
+    const seenJ = new Set(), seenC = new Set();
+    let dj = 0, dc = 0;
+    for (const m of list) {
+      const j = normJan(m.jan), c = normCode(m.code);
+      if (j) { if (seenJ.has(j)) dj++; else seenJ.add(j); }
+      if (c) { if (seenC.has(c)) dc++; else seenC.add(c); }
+    }
+    const out = [];
+    if (dj) out.push('JAN重複 ' + dj + '件');
+    if (dc) out.push('商品コード重複 ' + dc + '件');
+    return out.length ? out.join('・') + '：先に出てくる行を使います' : '';
+  }
+
+  // ---------- master import ----------
+  let importRows = null, importName = '';
+
+  async function readFile(file) {
+    const buf = await file.arrayBuffer();
+    if (/\.csv$/i.test(file.name)) {
+      let text;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+      catch (e) { text = new TextDecoder('shift_jis').decode(buf); }
+      text = text.replace(/^﻿/, '');
+      const wb = XLSX.read(text, { type: 'string', raw: true });
+      return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+    }
+    const wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+  }
+
+  function colName(i) { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+
+  function openMapping(rows, name) {
+    importRows = rows.filter(r => r.some(v => cellText(v) !== ''));
+    importName = name;
+    if (!importRows.length) { toast('ファイルにデータがありません'); return; }
+    const width = Math.max.apply(null, importRows.slice(0, 50).map(r => r.length));
+    const header = importRows[0].map(cellText);
+    const used = new Set();
+    const guess = {};
+    // JAN first so "コード" doesn't steal it
+    ['jan', 'size', 'name2', 'name1', 'code'].forEach(k => {
+      const f = FIELDS.find(x => x.key === k);
+      const idx = header.findIndex((h, i) => !used.has(i) && f.re.test(h));
+      if (idx >= 0) { guess[k] = idx; used.add(idx); }
+    });
+    const looksHeader = Object.keys(guess).length >= 2;
+    if (!looksHeader) { ['code', 'name1', 'name2', 'size', 'jan'].forEach((k, i) => { if (i < width) guess[k] = i; }); }
+    $('map-header').checked = looksHeader;
+    $('map-file').textContent = name + '（' + importRows.length + '行）。JANか商品コードのどちらかは必須です。';
+    const opts = '<option value="-1">使わない</option>' + Array.from({ length: width }, (_, i) =>
+      '<option value="' + i + '">' + colName(i) + '列' + (header[i] ? '：' + esc(header[i]).slice(0, 18) : '') + '</option>').join('');
+    $('map-grid').innerHTML = FIELDS.map(f =>
+      '<label for="map-' + f.key + '">' + f.label + (f.key === 'jan' ? ' <span style="color:#fca5a5">*</span>' : '') + '</label>' +
+      '<select class="select" id="map-' + f.key + '">' + opts + '</select>').join('');
+    FIELDS.forEach(f => { $('map-' + f.key).value = String(guess[f.key] != null ? guess[f.key] : -1); });
+    $('map-push').checked = !!S.url;
+    $('map-push').disabled = !S.url;
+    renderPreview();
+    $('modal-map').classList.remove('hidden');
+  }
+
+  function currentMap() { const m = {}; FIELDS.forEach(f => { m[f.key] = parseInt($('map-' + f.key).value, 10); }); return m; }
+  function mapRow(row, m) {
+    const g = k => (m[k] >= 0 ? cellText(row[m[k]]) : '');
+    return { code: g('code'), name1: g('name1'), name2: g('name2'), size: g('size'), jan: g('jan').replace(/\s/g, '') };
+  }
+  function renderPreview() {
+    const m = currentMap();
+    const start = $('map-header').checked ? 1 : 0;
+    const rows = importRows.slice(start, start + 4).map(r => mapRow(r, m));
+    $('map-preview').innerHTML = '<tr>' + FIELDS.map(f => '<th>' + f.label + '</th>').join('') + '</tr>' +
+      rows.map(r => '<tr>' + FIELDS.map(f => '<td>' + esc(r[f.key]) + '</td>').join('') + '</tr>').join('');
+  }
+
+  async function applyMapping() {
+    const m = currentMap();
+    if (m.jan < 0 && m.code < 0) { toast('JANか商品コードの列を選んでください'); return; }
+    const start = $('map-header').checked ? 1 : 0;
+    const out = [];
+    let skipped = 0, sci = 0;
+    for (const row of importRows.slice(start)) {
+      const r = mapRow(row, m);
+      if (!r.jan && !r.code) { skipped++; continue; }
+      if (/e\+/i.test(r.jan)) sci++;
+      out.push(r);
+    }
+    if (!out.length) { toast('取り込める行がありませんでした'); return; }
+    if (sci) { alert('JANが「4.9E+12」のような指数表示になっている行が' + sci + '件あります。Excelで JAN列を「文字列」にしてから保存し直してください。'); return; }
+    $('modal-map').classList.add('hidden');
+    S.master = out; save('master'); buildIndex(); renderCounts();
+    const d = dupCheck(out);
+    let msg = out.length + '件 取り込みました' + (skipped ? '（空行など' + skipped + '件は除外）' : '') + (d ? '\n' + d : '');
+    if ($('map-push').checked && S.url) {
+      try { const r = await api('saveMaster', { master: out }, 90000); msg += '\nスプレッドシートの商品マスタも ' + r.count + '件で上書きしました'; }
+      catch (e) { msg += '\nスプレッドシートへの保存は失敗：' + e.message; }
+    }
+    alert(msg);
+    importRows = null;
+  }
+
+  function downloadTemplate() {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['商品コード', '商品名1', '商品名2（カラー等）', 'サイズ', 'JANコード'],
+      ['SH-001-WHT-M', 'オックスフォードBDシャツ', 'ホワイト', 'M', '4901234567890'],
+      ['TS-001-OWH-M', 'クルーネックTシャツ', 'オフホワイト', 'M', '4901234567898']
+    ]);
+    for (let r = 1; r <= 2; r++) { const c = ws['E' + (r + 1)]; if (c) { c.t = 's'; c.z = '@'; } }
+    ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 8 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '商品マスタ');
+    XLSX.writeFile(wb, '商品マスタ_雛形.xlsx');
+  }
+
+  // ---------- modals ----------
+  function showCamHelp(reason) { $('camhelp-reason').textContent = reason; $('modal-camhelp').classList.remove('hidden'); }
+  function openStart() {
+    $('in-worker').value = S.worker;
+    $('in-loc').value = S.loc;
+    $('loc-history').innerHTML = S.locHistory.map(l => '<option value="' + esc(l) + '">').join('');
+    $('modal-start').classList.remove('hidden');
+    setTimeout(() => (S.worker ? $('in-loc') : $('in-worker')).focus(), 80);
+  }
+  function applyStart() {
+    const w = $('in-worker').value.trim();
+    if (!w) { toast('担当者名を入れてください'); $('in-worker').focus(); return; }
+    const l = $('in-loc').value.trim();
+    S.worker = w; S.loc = l;
+    if (l) { S.locHistory = [l].concat(S.locHistory.filter(x => x !== l)).slice(0, 30); save('locHistory'); }
+    save('worker'); save('loc');
+    $('modal-start').classList.add('hidden');
+    renderCounts();
+    if (current) showProduct(current.p, current.unregistered);
+    toast(l ? '棚番「' + l + '」で数えます' : '棚番なしで数えます');
+  }
+
+  // ---------- settings ----------
+  function renderSettings() {
+    $('set-merge').checked = !!S.settings.merge;
+    $('set-interval').value = String(S.settings.interval);
+    $('set-sound').checked = !!S.settings.sound;
+    $('set-vibe').checked = !!S.settings.vibe;
+    $('set-demo').checked = !!S.settings.demo;
+    $('demo-card').classList.toggle('hidden', !S.settings.demo);
+    $('mode-qty').classList.toggle('active', S.settings.mode === 'qty');
+    $('mode-one').classList.toggle('active', S.settings.mode === 'one');
+    $('in-url').value = S.url;
+    $('in-key').value = S.key;
+    $('ver').textContent = VERSION;
+    renderConn();
+  }
+  function saveSettings() { save('settings'); renderSettings(); }
+
+  // ---------- events ----------
+  function bind() {
+    document.querySelectorAll('.nav button').forEach(b => b.addEventListener('click', () => {
+      switchTab(b.dataset.tab);
+      if (b.dataset.tab === 'list') renderList();
+    }));
+
+    $('btn-cam-start').addEventListener('click', () => { beep(1, 0.001); startCamera(); });
+    $('btn-cam-stop').addEventListener('click', stopCamera);
+    $('btn-flip').addEventListener('click', async () => { facing = facing === 'environment' ? 'user' : 'environment'; await stopCamera(); startCamera(); });
+    $('btn-torch').addEventListener('click', toggleTorch);
+    $('btn-camhelp-close').addEventListener('click', () => $('modal-camhelp').classList.add('hidden'));
+    $('btn-camhelp-retry').addEventListener('click', () => { $('modal-camhelp').classList.add('hidden'); startCamera(); });
+
+    $('mode-qty').addEventListener('click', () => { S.settings.mode = 'qty'; saveSettings(); });
+    $('mode-one').addEventListener('click', () => {
+      S.settings.mode = 'one'; saveSettings();
+      if (current) closeProduct();
+      toast('読み取るたびに1点ずつ加算します');
+    });
+
+    $('btn-qty-minus').addEventListener('click', () => { const q = $('input-qty'); q.value = Math.max(1, (parseInt(q.value, 10) || 1) - 1); });
+    $('btn-qty-plus').addEventListener('click', () => { const q = $('input-qty'); q.value = (parseInt(q.value, 10) || 0) + 1; });
+    $('btn-confirm').addEventListener('click', confirmQty);
+    $('input-qty').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); confirmQty(); } });
+    $('btn-cancel-product').addEventListener('click', closeProduct);
+
+    $('btn-close-error').addEventListener('click', () => { hideError(); resumeScan(); setStatus('バーコードを枠内に合わせてください'); });
+    $('btn-count-unreg').addEventListener('click', () => {
+      const code = pendingUnreg; hideError();
+      const p = { code: '', name1: '', name2: '', size: '', jan: code };
+      if (S.settings.mode === 'one') { addRecord(p, 1, true); resumeScan(); }
+      else showProduct(p, true);
+    });
+
+    const search = $('input-search');
+    search.addEventListener('input', e => searchMaster(e.target.value));
+    search.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const v = search.value.trim();
+        if (!v) return;
+        const p = findProduct(v);
+        if (p) { search.value = ''; searchMaster(''); search.blur(); beep(880, 0.07); showProduct(p, false); }
+      }
+    });
+    $('candidates').addEventListener('click', e => {
+      const b = e.target.closest('.cand'); if (!b) return;
+      const p = S.master[+b.dataset.i]; if (!p) return;
+      search.value = ''; searchMaster(''); search.blur();
+      beep(880, 0.07);
+      if (S.settings.mode === 'one') addRecord(p, 1, false); else showProduct(p, false);
+    });
+    document.querySelectorAll('[data-demo]').forEach(b => b.addEventListener('click', () => handleCode(b.dataset.demo)));
+
+    $('chip-worker').addEventListener('click', openStart);
+    $('chip-loc').addEventListener('click', openStart);
+    $('chip-sync').addEventListener('click', () => { switchTab('list'); renderList(); });
+    $('btn-start').addEventListener('click', applyStart);
+    $('in-loc').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyStart(); } });
+
+    // list
+    $('list').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act]'); if (!btn) return;
+      const id = btn.closest('.item').dataset.id;
+      const r = S.list.find(x => x.id === id); if (!r) return;
+      r.qty = Math.max(1, r.qty + (btn.dataset.act === 'plus' ? 1 : -1));
+      save('list');
+      btn.parentElement.querySelector('input').value = r.qty;
+      renderCounts();
+    });
+    $('list').addEventListener('change', e => {
+      if (e.target.classList.contains('sel')) { updateSel(); return; }
+      if (e.target.dataset.act === 'set') {
+        const id = e.target.closest('.item').dataset.id;
+        const r = S.list.find(x => x.id === id); if (!r) return;
+        r.qty = Math.max(1, parseInt(e.target.value, 10) || 1);
+        e.target.value = r.qty;
+        save('list'); renderCounts();
+      }
+    });
+    $('check-all').addEventListener('change', e => { document.querySelectorAll('#list .sel').forEach(c => c.checked = e.target.checked); updateSel(); });
+    $('btn-bulk-del').addEventListener('click', () => {
+      const ids = Array.from(document.querySelectorAll('#list .sel:checked')).map(c => c.closest('.item').dataset.id);
+      if (!ids.length) { toast('削除する行にチェックを入れてください'); return; }
+      if (!confirm(ids.length + '行を削除しますか？')) return;
+      S.list = S.list.filter(r => !ids.includes(r.id)); save('list'); renderList();
+    });
+    $('btn-clear-all').addEventListener('click', () => {
+      if (!S.list.length) return;
+      if (!confirm('未送信のリスト ' + S.list.length + '行をすべて消しますか？\n（必要ならキャンセルして先に「CSV保存」してください）')) return;
+      S.list = []; save('list'); renderList();
+    });
+    $('btn-csv').addEventListener('click', () => {
+      const rows = S.list.slice().reverse().concat(...S.outbox.map(b => b.items));
+      if (!rows.length) { toast('保存するデータがありません'); return; }
+      const d = new Date(); const p = n => String(n).padStart(2, '0');
+      exportCsv(rows, '棚卸_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + '.csv');
+    });
+    $('btn-send').addEventListener('click', () => {
+      if (S.outbox.length && !S.list.length) { flushOutbox(true); return; }
+      if (!S.list.length) { toast('送信するデータがありません'); return; }
+      if (!S.url) { toast('先にスプレッドシートと接続してください'); switchTab('settings'); return; }
+      const qty = S.list.reduce((a, r) => a + r.qty, 0);
+      if (!confirm(S.list.length + '行（' + qty + '点）をスプレッドシートへ送信しますか？')) return;
+      queueSend();
+    });
+    $('btn-retry').addEventListener('click', () => flushOutbox(true));
+    $('btn-unqueue').addEventListener('click', () => {
+      if (!confirm('送信待ちのデータをリストに戻しますか？（数量の修正などができるようになります）')) return;
+      const back = [].concat(...S.outbox.map(b => b.items)).reverse();
+      S.list = back.concat(S.list); S.outbox = [];
+      save('list'); save('outbox'); renderList();
+    });
+
+    // settings
+    $('btn-scan-connect').addEventListener('click', async () => {
+      connectMode = true;
+      $('connect-banner').classList.remove('hidden');
+      switchTab('scan');
+      if (current) closeProduct();
+      if (camRunning) { resumeScan(); setStatus('パソコンに表示した接続コード（QR）を映してください'); }
+      else startCamera();
+    });
+    $('btn-save-conn').addEventListener('click', () => {
+      const raw = $('in-url').value.trim();
+      const c = parseConn(raw);
+      if (!c) { toast('接続コードかウェブアプリURL（…/exec）を入れてください'); return; }
+      S.url = c.url; S.key = c.key || $('in-key').value.trim();
+      save('url'); save('key'); renderSettings(); testConnection();
+    });
+    $('btn-test-conn').addEventListener('click', () => { if (!S.url) { renderConn(); return; } testConnection(); });
+    $('btn-load-master').addEventListener('click', () => {
+      if (!S.url) { toast('先にスプレッドシートと接続してください'); return; }
+      loadMasterFromSheet();
+    });
+    $('btn-template').addEventListener('click', downloadTemplate);
+    $('file-master').addEventListener('change', async e => {
+      const f = e.target.files[0]; e.target.value = '';
+      if (!f) return;
+      try { openMapping(await readFile(f), f.name); }
+      catch (err) { alert('ファイルを読めませんでした。Excel（.xlsx）かCSVで保存し直してください。\n（' + err.message + '）'); }
+    });
+    ['map-header'].forEach(id => $(id).addEventListener('change', renderPreview));
+    $('map-grid').addEventListener('change', renderPreview);
+    $('btn-map-cancel').addEventListener('click', () => { $('modal-map').classList.add('hidden'); importRows = null; });
+    $('btn-map-ok').addEventListener('click', applyMapping);
+
+    $('set-merge').addEventListener('change', e => { S.settings.merge = e.target.checked; saveSettings(); });
+    $('set-interval').addEventListener('change', e => { S.settings.interval = parseInt(e.target.value, 10); saveSettings(); });
+    $('set-sound').addEventListener('change', e => { S.settings.sound = e.target.checked; saveSettings(); });
+    $('set-vibe').addEventListener('change', e => { S.settings.vibe = e.target.checked; saveSettings(); });
+    $('set-demo').addEventListener('change', e => { S.settings.demo = e.target.checked; saveSettings(); });
+    $('btn-reset').addEventListener('click', () => {
+      const waiting = S.outbox.reduce((a, b) => a + b.items.length, 0);
+      if (!confirm('この端末の商品マスタ・リスト・設定をすべて消します。' + (S.list.length + waiting ? '\n未送信のデータ ' + (S.list.length + waiting) + '行も消えます。' : '') + '\nよろしいですか？')) return;
+      Object.keys(localStorage).filter(k => k.startsWith(KEY)).forEach(k => localStorage.removeItem(k));
+      location.reload();
+    });
+
+    window.addEventListener('online', () => { renderCounts(); flushOutbox(false); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') flushOutbox(false);
+      else if (camRunning && torchOn) { torchOn = false; $('btn-torch').classList.remove('on'); }
+    });
+    setInterval(() => { if (S.outbox.length) flushOutbox(false); }, 60000);
+    window.addEventListener('beforeunload', e => { if (S.outbox.length) { e.preventDefault(); e.returnValue = ''; } });
+  }
+
+  // ---------- boot ----------
+  document.addEventListener('DOMContentLoaded', () => {
+    loadAll();
+    bind();
+    renderSettings();
+    renderList();
+    switchTab('scan');
+    if (!S.worker) openStart();
+    if (S.outbox.length) flushOutbox(false);
+  });
+})();
+</script>
+</body>
+</html>
