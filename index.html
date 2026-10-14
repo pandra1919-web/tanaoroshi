@@ -478,14 +478,16 @@
   <div class="modal-box">
     <h2>カメラを使えるようにする</h2>
     <p id="camhelp-reason">カメラの使用が許可されていません。</p>
-    <div class="card help-card">
+    <div class="card help-card" id="help-ios">
       <b>iPhone（Safari）</b>
       <ol class="small" style="margin:6px 0 0;padding-left:18px">
-        <li>「設定」アプリ →「Safari」→「カメラ」→「許可」</li>
-        <li>このページに戻り、下の「もう一度試す」</li>
+        <li>アドレスバー左の「ぁあ」（または「aA」）をタップ</li>
+        <li>「Webサイトの設定」→「カメラ」→「許可」</li>
+        <li>下の「もう一度試す」</li>
       </ol>
+      <p class="small muted" style="margin:8px 0 0">ホーム画面から開いていて「ぁあ」がない場合：「設定」アプリ →「Safari」→「カメラ」→「許可」</p>
     </div>
-    <div class="card help-card">
+    <div class="card help-card" id="help-android">
       <b>Android（Chrome）</b>
       <ol class="small" style="margin:6px 0 0;padding-left:18px">
         <li>アドレスバー左の鍵マーク（またはスライダー）をタップ</li>
@@ -507,7 +509,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
   const KEY = 'tns_v1_';
   const DEMO_MASTER = [
     { code: 'SH-001-WHT-M', name1: 'オックスフォードBDシャツ', name2: 'ホワイト', size: 'M', jan: '4901234567890' },
@@ -615,17 +617,26 @@
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     $('sec-' + tab).classList.add('active');
     document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    if (tab !== 'scan' && camRunning && !connectMode) stopCamera();
+    // カメラは止めずに一時停止だけにする（止めると戻ったときに許可を聞き直されることがあるため）
+    if (tab !== 'scan' && camRunning && !connectMode && !tabPaused) {
+      tabPaused = !scanPaused;
+      if (tabPaused) pauseScan();
+    }
+    if (tab === 'scan' && tabPaused) {
+      tabPaused = false;
+      if (!current && !pendingUnreg) { resumeScan(); setStatus('バーコードを枠内に合わせてください'); }
+    }
     window.scrollTo(0, 0);
   }
 
   // ---------- camera ----------
   let qr = null, camRunning = false, scanPaused = false, facing = 'environment', torchOn = false;
-  let lastCode = '', lastAt = 0, connectMode = false;
+  let lastCode = '', lastAt = 0, connectMode = false, tabPaused = false;
+  const CAM_OK = KEY + 'camOk';
 
-  async function startCamera() {
+  async function startCamera(auto) {
     const reader = $('reader');
-    if (!window.Html5Qrcode) { showCamHelp('読み取り部品を読み込めませんでした。電波の良い場所でページを開き直してください。'); return; }
+    if (!window.Html5Qrcode) { if (auto) return; showCamHelp('読み取り部品を読み込めませんでした。電波の良い場所でページを開き直してください。'); return; }
     if (qr && camRunning) return;
     qr = qr || new Html5Qrcode('reader', { verbose: false });
     const formats = window.Html5QrcodeSupportedFormats;
@@ -642,10 +653,12 @@
     } catch (err) {
       const msg = String(err && (err.name || err.message || err));
       $('standby-msg').textContent = '商品のバーコードを枠に合わせると自動で読み取ります';
+      if (/NotAllowed|Permission|denied/i.test(msg)) { try { localStorage.removeItem(CAM_OK); } catch (e) {} }
+      if (auto) return;
       if (/NotAllowed|Permission|denied/i.test(msg)) {
         showCamHelp('カメラの使用が許可されていません。下の手順で許可してください。');
       } else if (/NotFound|Overconstrained|no camera/i.test(msg)) {
-        if (facing === 'environment') { facing = 'user'; return startCamera(); }
+        if (facing === 'environment') { facing = 'user'; return startCamera(auto); }
         showCamHelp('この端末でカメラが見つかりませんでした。');
       } else if (/NotReadable|in use|Could not start/i.test(msg)) {
         showCamHelp('カメラを他のアプリが使っています。カメラを使う他のアプリやタブを閉じてから、もう一度試してください。');
@@ -656,7 +669,8 @@
       }
       return;
     }
-    camRunning = true; scanPaused = false; torchOn = false;
+    camRunning = true; scanPaused = false; torchOn = false; tabPaused = false;
+    try { localStorage.setItem(CAM_OK, '1'); } catch (e) {}
     $('scan-standby').classList.add('hidden');
     $('scan-target').classList.remove('hidden');
     $('scan-status').classList.remove('hidden');
@@ -1162,7 +1176,25 @@
   }
 
   // ---------- modals ----------
-  function showCamHelp(reason) { $('camhelp-reason').textContent = reason; $('modal-camhelp').classList.remove('hidden'); }
+  function showCamHelp(reason) {
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const android = /Android/.test(ua);
+    $('help-ios').classList.toggle('hidden', android);
+    $('help-android').classList.toggle('hidden', ios);
+    $('camhelp-reason').textContent = reason;
+    $('modal-camhelp').classList.remove('hidden');
+  }
+
+  // 一度許可した端末では、開いたらボタンを押さずにカメラを起動する
+  async function autoCamera() {
+    if (camRunning || !$('sec-scan').classList.contains('active')) return;
+    let state = '';
+    try { state = (await navigator.permissions.query({ name: 'camera' })).state; } catch (e) {}
+    let ok = false;
+    try { ok = localStorage.getItem(CAM_OK) === '1'; } catch (e) {}
+    if (state === 'granted' || (state !== 'denied' && ok)) startCamera(true);
+  }
   function openStart() {
     $('in-worker').value = S.worker;
     $('in-loc').value = S.loc;
@@ -1180,6 +1212,7 @@
     $('modal-start').classList.add('hidden');
     renderCounts();
     if (current) showProduct(current.p, current.unregistered);
+    if (!camRunning && $('sec-scan').classList.contains('active')) startCamera(true);
     toast(l ? '棚番「' + l + '」で数えます' : '棚番なしで数えます');
   }
 
@@ -1362,7 +1395,16 @@
 
     window.addEventListener('online', () => { renderCounts(); flushOutbox(false); });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') flushOutbox(false);
+      if (document.visibilityState === 'visible') {
+        flushOutbox(false);
+        // iPhoneは裏に回すとカメラが切れることがあるので、戻ったら自動で付け直す
+        const v = document.querySelector('#reader video');
+        const tr = v && v.srcObject && v.srcObject.getVideoTracks ? v.srcObject.getVideoTracks()[0] : null;
+        if (camRunning && (!tr || tr.readyState === 'ended')) {
+          const wasPaused = scanPaused;
+          stopCamera().then(() => startCamera(true)).then(() => { if (wasPaused) pauseScan(); });
+        }
+      }
       else if (camRunning && torchOn) { torchOn = false; $('btn-torch').classList.remove('on'); }
     });
     setInterval(() => { if (S.outbox.length) flushOutbox(false); }, 60000);
@@ -1376,7 +1418,7 @@
     renderSettings();
     renderList();
     switchTab('scan');
-    if (!S.worker) openStart();
+    if (!S.worker) openStart(); else autoCamera();
     if (S.outbox.length) flushOutbox(false);
   });
 })();
